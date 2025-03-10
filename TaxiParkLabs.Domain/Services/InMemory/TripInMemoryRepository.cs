@@ -7,7 +7,9 @@ namespace TaxiParkLabs.Domain.Services.InMemory;
 /// </summary>
 public class TripInMemoryRepository : ITripRepository
 {
-    private List<Trip> _trips;
+    private readonly List<Trip> _trips;
+    private readonly List<Driver> _drivers;
+    private readonly List<DriverCar> _driverCars;
 
     /// <summary>
     /// Конструктор репозитория
@@ -15,6 +17,8 @@ public class TripInMemoryRepository : ITripRepository
     public TripInMemoryRepository()
     {
         _trips = DataSeeder.Trips;
+        _drivers = DataSeeder.Drivers;
+        _driverCars = DataSeeder.DriverCars;
     }
 
     /// <inheritdoc/>
@@ -37,18 +41,20 @@ public class TripInMemoryRepository : ITripRepository
     }
 
     /// <inheritdoc/>
-    public async Task<Trip> Update(Trip entity)
+    public Task<Trip> Update(Trip entity)
     {
-        try
-        {
-            await Delete(entity.Id);
-            await Add(entity);
+        var existingTrip = _trips.FirstOrDefault(d => d.Id == entity.Id);
+        if (existingTrip != null)
+        {           
+            existingTrip.Id = entity.Id;
+            existingTrip.DeparturePoint = entity.DeparturePoint;
+            existingTrip.DestinationPoint = entity.DestinationPoint;
+            existingTrip.TripDate = entity.TripDate;
+            existingTrip.TravelTime = entity.TravelTime;
+            existingTrip.Cost = entity.Cost;
+            existingTrip.CarId = entity.CarId;
         }
-        catch
-        {
-            return null!;
-        }
-        return entity;
+        return Task.FromResult(entity);
     }
 
     /// <inheritdoc/>
@@ -64,11 +70,15 @@ public class TripInMemoryRepository : ITripRepository
     {
         var statistics = _trips
             .GroupBy(t => t.CarId)
-            .Select(g => (
-                driver: new Driver { Id = g.Key },
-                tripCount: g.Count(),
-                avgTravelTime: g.Average(t => t.TravelTime ?? 0),
-                maxTravelTime: g.Max(t => t.TravelTime ?? 0)))
+            .Select(g =>
+            {
+                var driverCar = _driverCars.FirstOrDefault(dc => dc.CarId == g.Key);
+                var driver = driverCar != null ? _drivers.FirstOrDefault(d => d.Id == driverCar.DriverId) : null;
+                return driver != null
+                    ? (driver, g.Count(), g.Average(t => t.TravelTime ?? 0), g.Max(t => t.TravelTime ?? 0))
+                    : default;
+            })
+            .Where(stat => stat.driver != null)
             .ToList();
 
         return Task.FromResult((IList<(Driver, int, double, int)>)statistics);
